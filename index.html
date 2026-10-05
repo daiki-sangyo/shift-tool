@@ -132,6 +132,36 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
 
 .holiday-legend{font-size:.78rem;color:var(--sun);margin-bottom:10px;line-height:1.7;}
 
+/* calendar view */
+.month-controls .icon-btn{flex:0 0 auto;}
+.cal-title{font-family:'Shippori Mincho',serif;font-weight:700;font-size:1.25rem;margin:2px 0 8px;}
+.cal-scroll{overflow-x:auto;border:1px solid var(--border);border-radius:8px;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(108px,1fr));min-width:756px;background:var(--border);gap:1px;}
+.cal-dow{background:var(--surface-alt);text-align:center;font-size:.8rem;font-weight:700;color:var(--ink-muted);padding:6px 0;}
+.cal-dow.sat{color:var(--sat);}
+.cal-dow.sun{color:var(--sun);}
+.cal-cell{background:var(--surface);min-height:124px;padding:4px 5px 6px;display:flex;flex-direction:column;gap:2px;cursor:pointer;text-align:left;font:inherit;color:inherit;border:none;border-radius:0;}
+.cal-cell:hover{background:var(--accent-soft);}
+.cal-cell:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+.cal-cell.blank{background:var(--surface-alt);cursor:default;min-height:60px;}
+.cal-cell.blank:hover{background:var(--surface-alt);}
+.cal-date{display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;font-variant-numeric:tabular-nums;}
+.cal-num{font-size:.86rem;font-weight:700;min-width:1.7em;height:1.7em;line-height:1.7em;text-align:center;border-radius:999px;}
+.cal-cell.sat .cal-num{color:var(--sat);}
+.cal-cell.sun .cal-num,.cal-cell.hol .cal-num{color:var(--sun);}
+.cal-cell.today .cal-num{background:var(--accent);color:var(--accent-ink);}
+.cal-hol{font-size:.66rem;color:var(--sun);line-height:1.3;}
+.cal-chip{font-size:.72rem;line-height:1.35;padding:1px 6px;border-radius:4px;background:var(--accent-soft);color:var(--ink);overflow-wrap:anywhere;}
+.cal-chip b{font-weight:700;margin-left:3px;}
+.cal-hint{font-size:.76rem;color:var(--ink-muted);margin:8px 0 0;}
+
+.modal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;}
+.modal[hidden]{display:none;}
+.modal-card{background:var(--surface);color:var(--ink);border:1px solid var(--border);border-radius:12px;width:min(420px,100%);max-height:calc(100% - 16px);overflow-y:auto;padding:14px 16px 16px;}
+.modal-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.modal-head .day-label{flex:1;text-align:center;font-weight:700;font-size:.98rem;font-variant-numeric:tabular-nums;}
+.modal-card .day-row input[type=text]{width:130px;}
+
 .day-nav{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
 .day-nav .day-label{font-weight:700;font-size:1rem;flex:1;text-align:center;font-variant-numeric:tabular-nums;}
 .day-row-name{flex:1;font-size:.9rem;}
@@ -242,6 +272,8 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
         </div>
       </div>
       <div class="month-controls">
+        <button type="button" class="icon-btn" id="prevMonthBtn" aria-label="前の月">◀</button>
+        <button type="button" class="icon-btn" id="nextMonthBtn" aria-label="次の月">▶</button>
         <input type="number" id="monthYearInput">年
         <select id="monthMonthSelect">
           <option value="1">1月</option><option value="2">2月</option><option value="3">3月</option>
@@ -256,7 +288,8 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
           <button type="button" id="nextYearBtn">来年</button>
         </span>
         <span class="segmented" style="margin-left:auto">
-          <button type="button" id="modeGridBtn" class="active">表形式</button>
+          <button type="button" id="modeCalBtn" class="active">カレンダー</button>
+          <button type="button" id="modeGridBtn">表形式</button>
           <button type="button" id="modeDayBtn">日別</button>
         </span>
       </div>
@@ -264,6 +297,12 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       <div id="holidayLegend" class="holiday-legend" hidden></div>
 
       <div id="monthEmptyState" class="empty" hidden>①でスタッフを登録すると、ここに月間シフト表が表示されます。</div>
+
+      <div id="calView" hidden>
+        <div class="cal-title" id="calTitle"></div>
+        <div class="cal-scroll"><div class="cal-grid" id="calGrid"></div></div>
+        <p class="cal-hint">日付の枠をクリックすると、その日のシフトを編集できます。</p>
+      </div>
 
       <div class="table-scroll" id="gridView"></div>
 
@@ -282,6 +321,18 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       </div>
     </section>
   </main>
+</div>
+
+<div class="modal" id="dayModal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalLabel">
+    <div class="modal-head">
+      <button type="button" class="icon-btn" id="modalPrevBtn" aria-label="前の日">◀</button>
+      <span class="day-label" id="modalLabel"></span>
+      <button type="button" class="icon-btn" id="modalNextBtn" aria-label="次の日">▶</button>
+      <button type="button" class="icon-btn" id="modalCloseBtn" aria-label="閉じる">✕</button>
+    </div>
+    <div id="modalList"></div>
+  </div>
 </div>
 
 <datalist id="shiftTypeOptions"></datalist>
@@ -313,7 +364,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
 
   var monthView = (function(){
     var t = new Date();
-    return { year: t.getFullYear(), month: t.getMonth()+1, day: t.getDate(), mode: (window.innerWidth < 700 ? 'day' : 'grid') };
+    return { year: t.getFullYear(), month: t.getMonth()+1, day: t.getDate(), mode: 'cal' };
   })();
 
   function $(id){ return document.getElementById(id); }
@@ -913,6 +964,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
   function renderMonthTab(){
     $('monthYearInput').value = monthView.year;
     $('monthMonthSelect').value = String(monthView.month);
+    $('modeCalBtn').classList.toggle('active', monthView.mode==='cal');
     $('modeGridBtn').classList.toggle('active', monthView.mode==='grid');
     $('modeDayBtn').classList.toggle('active', monthView.mode==='day');
     var thisYear = (new Date()).getFullYear();
@@ -923,14 +975,95 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     if (!state.staff.length){
       $('monthEmptyState').hidden = false;
       $('monthEmptyState').textContent = '①でスタッフを登録すると、ここに月間シフト表が表示されます。';
-      $('gridView').hidden = true; $('dayView').hidden = true;
+      $('gridView').hidden = true; $('dayView').hidden = true; $('calView').hidden = true;
       $('holidayLegend').hidden = true;
       return;
     }
     $('monthEmptyState').hidden = true;
+    $('calView').hidden = monthView.mode !== 'cal';
     $('gridView').hidden = monthView.mode !== 'grid';
     $('dayView').hidden = monthView.mode !== 'day';
-    if (monthView.mode === 'grid') renderMonthGrid(); else renderDayView();
+    if (monthView.mode === 'cal') renderCalendar();
+    else if (monthView.mode === 'grid') renderMonthGrid();
+    else renderDayView();
+  }
+
+  var DOW_SUN_FIRST = ['日','月','火','水','木','金','土'];
+  function renderCalendar(){
+    var days = daysInMonthArr(monthView.year, monthView.month);
+    renderHolidayLegend(days);
+    $('calTitle').textContent = monthView.year + '年' + monthView.month + '月';
+    var html = '';
+    DOW_SUN_FIRST.forEach(function(w, i){
+      html += '<div class="cal-dow' + (i===0 ? ' sun' : i===6 ? ' sat' : '') + '">' + w + '</div>';
+    });
+    var lead = new Date(monthView.year, monthView.month-1, 1).getDay();
+    for (var i=0; i<lead; i++) html += '<div class="cal-cell blank"></div>';
+    var todayIso = isoFromDate(new Date());
+    days.forEach(function(d){
+      var cls = 'cal-cell' + (d.holiday ? ' hol' : '') + (d.wd===5 ? ' sat' : '') + (d.wd===6 ? ' sun' : '') + (d.iso===todayIso ? ' today' : '');
+      html += '<div class="' + cls + '" role="button" tabindex="0" data-date="' + d.iso + '">';
+      html += '<div class="cal-date"><span class="cal-num">' + d.d + '</span>' + (d.holiday ? '<span class="cal-hol">' + escapeHtml(d.holiday) + '</span>' : '') + '</div>';
+      state.staff.forEach(function(name){
+        var v = effectiveValue(name, d.iso);
+        if (!v) return;
+        var color = colorForValue(v);
+        var style = color ? ' style="background:#' + color + ';color:' + textColorFor(color) + '"' : '';
+        html += '<div class="cal-chip"' + style + '>' + escapeHtml(name) + '<b>' + escapeHtml(v) + '</b></div>';
+      });
+      html += '</div>';
+    });
+    var trail = (7 - (lead + days.length) % 7) % 7;
+    for (var j=0; j<trail; j++) html += '<div class="cal-cell blank"></div>';
+    var grid = $('calGrid');
+    grid.innerHTML = html;
+    grid.querySelectorAll('.cal-cell[data-date]').forEach(function(cell){
+      cell.addEventListener('click', function(){ openDayModal(cell.dataset.date); });
+      cell.addEventListener('keydown', function(e){
+        if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); openDayModal(cell.dataset.date); }
+      });
+    });
+  }
+
+  function openDayModal(iso){
+    var p = iso.split('-').map(Number);
+    monthView.year = p[0]; monthView.month = p[1]; monthView.day = p[2];
+    $('dayModal').hidden = false;
+    renderDayModal();
+  }
+  function closeDayModal(){ $('dayModal').hidden = true; }
+  function renderDayModal(){
+    var iso = isoDate(monthView.year, monthView.month, monthView.day);
+    var wd = weekdayIndex(monthView.year, monthView.month, monthView.day);
+    var h = holidayName(iso);
+    var label = $('modalLabel');
+    label.textContent = monthView.year + '/' + monthView.month + '/' + monthView.day + '（' + WEEKDAYS[wd] + (h ? '・' + h : '') + '）';
+    label.style.color = h ? 'var(--sun)' : (wd===6 ? 'var(--sun)' : wd===5 ? 'var(--sat)' : '');
+    var list = $('modalList');
+    list.innerHTML = '';
+    state.staff.forEach(function(name){
+      var row = document.createElement('div');
+      row.className = 'day-row';
+      row.innerHTML = '<span class="day-row-name">' + escapeHtml(name) + '</span>';
+      var input = document.createElement('input');
+      input.type = 'text'; input.setAttribute('list', 'shiftTypeOptions');
+      input.value = effectiveValue(name, iso);
+      input.dataset.staff = name; input.dataset.date = iso;
+      applyCellColor(input);
+      input.addEventListener('change', function(){
+        onMonthCellChange(input);
+        if (monthView.mode === 'cal') renderCalendar();
+      });
+      row.appendChild(input);
+      list.appendChild(row);
+    });
+  }
+  function shiftModalDay(delta){
+    var base = new Date(monthView.year, monthView.month-1, monthView.day);
+    base.setDate(base.getDate() + delta);
+    monthView.year = base.getFullYear(); monthView.month = base.getMonth()+1; monthView.day = base.getDate();
+    renderMonthTab();
+    renderDayModal();
   }
   function renderMonthGrid(){
     var days = daysInMonthArr(monthView.year, monthView.month);
@@ -1120,6 +1253,20 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     $('lastYearBtn').addEventListener('click', function(){ monthView.year = (new Date()).getFullYear()-1; renderMonthTab(); });
     $('thisYearBtn').addEventListener('click', function(){ monthView.year = (new Date()).getFullYear(); renderMonthTab(); });
     $('nextYearBtn').addEventListener('click', function(){ monthView.year = (new Date()).getFullYear()+1; renderMonthTab(); });
+    $('prevMonthBtn').addEventListener('click', function(){
+      var d = new Date(monthView.year, monthView.month-2, 1);
+      monthView.year = d.getFullYear(); monthView.month = d.getMonth()+1; renderMonthTab();
+    });
+    $('nextMonthBtn').addEventListener('click', function(){
+      var d = new Date(monthView.year, monthView.month, 1);
+      monthView.year = d.getFullYear(); monthView.month = d.getMonth()+1; renderMonthTab();
+    });
+    $('modeCalBtn').addEventListener('click', function(){ monthView.mode='cal'; renderMonthTab(); });
+    $('modalCloseBtn').addEventListener('click', closeDayModal);
+    $('modalPrevBtn').addEventListener('click', function(){ shiftModalDay(-1); });
+    $('modalNextBtn').addEventListener('click', function(){ shiftModalDay(1); });
+    $('dayModal').addEventListener('click', function(e){ if (e.target === $('dayModal')) closeDayModal(); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && !$('dayModal').hidden) closeDayModal(); });
     $('modeGridBtn').addEventListener('click', function(){ monthView.mode='grid'; renderMonthTab(); });
     $('modeDayBtn').addEventListener('click', function(){
       monthView.mode='day';
