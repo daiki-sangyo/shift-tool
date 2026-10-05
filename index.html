@@ -163,6 +163,19 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
 .cal-chip{font-size:.72rem;line-height:1.35;padding:1px 6px;border-radius:4px;background:var(--accent-soft);color:var(--ink);overflow-wrap:anywhere;}
 .cal-chip b{font-weight:700;margin-left:3px;}
 .cal-hint{font-size:.76rem;color:var(--ink-muted);margin:8px 0 0;}
+.cal-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.cal-legend .cal-chip{font-size:.74rem;padding:2px 8px;}
+@media (max-width:700px){
+  #app{padding-inline:10px;}
+  .panel{padding:10px;}
+  .cal-grid{grid-template-columns:repeat(7,minmax(0,1fr));min-width:0;}
+  .cal-dow{font-size:.72rem;padding:4px 0;}
+  .cal-cell{min-height:84px;padding:2px 2px 4px;gap:1px;}
+  .cal-num{font-size:.72rem;min-width:1.6em;height:1.6em;line-height:1.6em;}
+  .cal-hol{display:none;}
+  .cal-cell .cal-chip{font-size:.6rem;line-height:1.35;padding:0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:3px;}
+  .cal-cell .cal-chip b{display:none;}
+}
 
 .modal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;}
 .modal[hidden]{display:none;}
@@ -317,6 +330,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       <div id="calView" hidden>
         <div class="cal-title" id="calTitle"></div>
         <div class="cal-scroll"><div class="cal-grid" id="calGrid"></div></div>
+        <div class="cal-legend" id="calLegend"></div>
         <p class="cal-hint">日付の枠をクリックすると、その日のシフトを編集できます。</p>
       </div>
 
@@ -1031,6 +1045,11 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     });
     var trail = (7 - (lead + days.length) % 7) % 7;
     for (var j=0; j<trail; j++) html += '<div class="cal-cell blank"></div>';
+    $('calLegend').innerHTML = state.shiftTypes.map(function(t){
+      var c = (t.color || '').replace('#', '');
+      var style = c ? ' style="background:#' + c + ';color:' + textColorFor(c) + '"' : '';
+      return '<span class="cal-chip"' + style + '>' + escapeHtml(t.name) + (t.time ? '　' + escapeHtml(t.time) : '') + '</span>';
+    }).join('');
     var grid = $('calGrid');
     grid.innerHTML = html;
     grid.querySelectorAll('.cal-cell[data-date]').forEach(function(cell){
