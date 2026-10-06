@@ -182,7 +182,24 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
 .modal-card{background:var(--surface);color:var(--ink);border:1px solid var(--border);border-radius:12px;width:min(420px,100%);max-height:calc(100% - 16px);overflow-y:auto;padding:14px 16px 16px;}
 .modal-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
 .modal-head .day-label{flex:1;text-align:center;font-weight:700;font-size:.98rem;font-variant-numeric:tabular-nums;}
-.modal-card .day-row input[type=text]{width:130px;}
+.modal-card{width:min(600px,100%);padding:18px 20px 22px;border-radius:14px;max-height:calc(100% - 8px);max-height:calc(100dvh - 24px);overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+@media (max-width:700px){
+  .modal{padding:10px;}
+  .modal-card{padding:14px 14px 20px;}
+  .modal-head{gap:8px;}
+  .modal-head .icon-btn{width:42px;height:42px;}
+  .modal-card .day-row input[type=text]{flex:0 0 58%;width:58%;}
+}
+@media (max-height:520px){
+  .modal{align-items:flex-start;padding-top:8px;}
+  .modal-card{max-height:calc(100dvh - 16px);}
+}
+.modal-head{gap:12px;margin-bottom:12px;}
+.modal-head .day-label{font-size:1.2rem;}
+.modal-head .icon-btn{width:44px;height:44px;font-size:1.05rem;border-radius:10px;}
+.modal-card .day-row{padding:12px 4px;gap:14px;}
+.modal-card .day-row-name{font-size:1.1rem;font-weight:700;overflow-wrap:anywhere;}
+.modal-card .day-row input[type=text]{flex:0 0 min(300px,55%);width:min(300px,55%);font-size:1.15rem;padding:13px 14px;border-radius:10px;}
 
 .day-nav{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
 .day-nav .day-label{font-weight:700;font-size:1rem;flex:1;text-align:center;font-variant-numeric:tabular-nums;}
@@ -218,6 +235,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
   <div class="sync-row">
     <span class="sync-status off" id="syncStatusLabel">ローカル保存のみ</span>
     <button type="button" class="btn ghost" id="openSyncSettingsBtn">☁ 自動同期を設定</button>
+    <button type="button" class="btn ghost" id="syncNowBtn" hidden>🔄 今すぐ同期</button>
     <button type="button" class="btn ghost" id="disconnectSyncBtn" hidden>同期を解除</button>
   </div>
 
@@ -442,7 +460,6 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
   var githubConfig = null;
   var githubSha = null;
   var pushTimer = null;
-  var pollTimer = null;
   var isPushing = false;
   var dirty = false;
 
@@ -479,6 +496,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     stopPolling();
     updateSyncStatus('off');
     $('disconnectSyncBtn').hidden = true;
+    $('syncNowBtn').hidden = true;
   }
 
   function updateSyncStatus(kind, extra){
@@ -547,21 +565,36 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
   }
 
   function applyRemoteData(data){
-    state = {
+    var next = {
       staff: Array.isArray(data.staff) ? data.staff : [],
       shiftTypes: Array.isArray(data.shiftTypes) ? data.shiftTypes : defaultState().shiftTypes,
       weeklyPattern: (data.weeklyPattern && typeof data.weeklyPattern === 'object') ? data.weeklyPattern : {},
       overrides: (data.overrides && typeof data.overrides === 'object') ? data.overrides : {}
     };
+    if (JSON.stringify(next) === JSON.stringify(state)) return;
+    state = next;
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch(e){}
     refreshTypeOptions();
     renderAll();
   }
 
+  // true while the user is typing in a field or has the day-edit window open:
+  // remote data must never be applied (and the screen never redrawn) in that state
+  var pullDeferred = false;
+  function isEditing(){
+    if (!$('dayModal').hidden) return true;
+    var ae = document.activeElement;
+    if (!ae || !/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return false;
+    return !ae.closest('#syncPanel');
+  }
+
   function pullFromGithub(){
     if (!githubConfig) return Promise.resolve();
+    if (isEditing() || dirty || isPushing){ pullDeferred = true; return Promise.resolve(); }
     updateSyncStatus('syncing');
     return githubGetFile(githubConfig).then(function(res){
+      if (isEditing() || dirty || isPushing){ pullDeferred = true; updateSyncStatus('ok'); return; }
+      pullDeferred = false;
       githubSha = res.sha;
       if (res.exists && res.data && typeof res.data === 'object') applyRemoteData(res.data);
       updateSyncStatus('ok');
@@ -570,13 +603,16 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       updateSyncStatus('error', describeGithubError(e));
     });
   }
+  function runDeferredPull(){
+    if (pullDeferred && !isEditing() && !dirty && !isPushing) pullFromGithub();
+  }
 
   function schedulePush(){
     if (!githubConfig) return;
     dirty = true;
     try { localStorage.setItem(PENDING_PUSH_KEY, '1'); } catch(e){}
     clearTimeout(pushTimer);
-    pushTimer = setTimeout(pushToGithub, 1500);
+    pushTimer = setTimeout(pushToGithub, 500);
   }
   function pushToGithub(){
     if (!githubConfig) return;
@@ -587,6 +623,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       githubSha = newSha;
       isPushing = false;
       dirty = false;
+      pullDeferred = false;
       try { localStorage.removeItem(PENDING_PUSH_KEY); } catch(e){}
       updateSyncStatus('ok');
     }).catch(function(e){
@@ -608,20 +645,30 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     });
   }
 
+  // No timer: the latest data is fetched when the tool is opened, when the user comes back
+  // to it (tab/app switched back), when an edit session ends, or via the 「今すぐ同期」 button.
   function onFocusPull(){
     if (document.visibilityState === 'hidden') return;
-    if (!isPushing && !dirty) pullFromGithub();
+    pullFromGithub();
+  }
+  function onFocusOut(){
+    setTimeout(runDeferredPull, 100);
   }
   function startPolling(){
     stopPolling();
-    pollTimer = setInterval(function(){ if (!isPushing && !dirty) pullFromGithub(); }, 25000);
     window.addEventListener('focus', onFocusPull);
     document.addEventListener('visibilitychange', onFocusPull);
+    document.addEventListener('focusout', onFocusOut);
   }
   function stopPolling(){
-    clearInterval(pollTimer);
     window.removeEventListener('focus', onFocusPull);
     document.removeEventListener('visibilitychange', onFocusPull);
+    document.removeEventListener('focusout', onFocusOut);
+  }
+  function syncNow(){
+    if (!githubConfig) return;
+    if (dirty && !isPushing){ clearTimeout(pushTimer); pushToGithub(); }
+    else pullFromGithub();
   }
 
   function openSyncPanel(){
@@ -648,6 +695,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     githubSha = null;
     $('syncPanel').hidden = true;
     $('disconnectSyncBtn').hidden = false;
+    $('syncNowBtn').hidden = false;
     pullFromGithub().then(function(){
       schedulePush();
       startPolling();
@@ -1066,7 +1114,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     $('dayModal').hidden = false;
     renderDayModal();
   }
-  function closeDayModal(){ $('dayModal').hidden = true; }
+  function closeDayModal(){ $('dayModal').hidden = true; setTimeout(runDeferredPull, 100); }
   function renderDayModal(){
     var iso = isoDate(monthView.year, monthView.month, monthView.day);
     var wd = weekdayIndex(monthView.year, monthView.month, monthView.day);
@@ -1326,6 +1374,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     });
     $('cancelSyncBtn').addEventListener('click', function(){ $('syncPanel').hidden = true; });
     $('saveSyncBtn').addEventListener('click', saveSyncFromForm);
+    $('syncNowBtn').addEventListener('click', syncNow);
     $('disconnectSyncBtn').addEventListener('click', function(e){
       armConfirm(e.currentTarget, '解除する', function(){ clearGithubConfig(); });
     });
@@ -1341,6 +1390,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     loadGithubConfig();
     if (githubConfig){
       $('disconnectSyncBtn').hidden = false;
+      $('syncNowBtn').hidden = false;
       var pendingPush = false;
       try { pendingPush = localStorage.getItem(PENDING_PUSH_KEY) === '1'; } catch(e){}
       if (pendingPush){
