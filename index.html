@@ -213,6 +213,17 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
 .modal-head .day-label{font-size:1.2rem;}
 .modal-head .icon-btn{width:44px;height:44px;font-size:1.05rem;border-radius:10px;}
 .modal-card .day-row{padding:12px 4px;gap:14px;}
+.modal-card .day-row.stack{flex-direction:column;align-items:stretch;gap:8px;}
+#pickerModal{z-index:60;}
+.picker-card{width:min(480px,100%);}
+.pick-chips{display:flex;flex-wrap:wrap;gap:8px;}
+.pick-chip{min-height:48px;min-width:76px;padding:6px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface-alt);color:var(--ink);font:inherit;font-size:1rem;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.25;-webkit-tap-highlight-color:transparent;}
+.pick-chip small{font-size:.66rem;opacity:.75;}
+.pick-chip.clear{border-style:dashed;color:var(--ink-muted);}
+.pick-chip.sel{border:2px solid var(--ink);font-weight:700;}
+.pick-custom{margin-top:8px;}
+.pick-custom input{width:100%;font-size:16px;padding:12px;}
+table.grid-table input[readonly]{cursor:pointer;}
 .modal-card .day-row-name{font-size:1.1rem;font-weight:700;overflow-wrap:anywhere;}
 .modal-card .day-row input[type=text]{flex:0 0 min(300px,55%);width:min(300px,55%);font-size:1.15rem;padding:13px 14px;border-radius:10px;}
 
@@ -403,6 +414,16 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       <button type="button" class="icon-btn" id="modalCloseBtn" aria-label="閉じる">✕</button>
     </div>
     <div id="modalList"></div>
+  </div>
+</div>
+
+<div class="modal" id="pickerModal" hidden>
+  <div class="modal-card picker-card" role="dialog" aria-modal="true" aria-labelledby="pickerLabel">
+    <div class="modal-head">
+      <span class="day-label" id="pickerLabel"></span>
+      <button type="button" class="icon-btn" id="pickerCloseBtn" aria-label="閉じる">✕</button>
+    </div>
+    <div id="pickerBody"></div>
   </div>
 </div>
 
@@ -653,7 +674,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
   // remote data must never be applied (and the screen never redrawn) in that state
   var pullDeferred = false;
   function isEditing(){
-    if (!$('dayModal').hidden) return true;
+    if (!$('dayModal').hidden || !$('pickerModal').hidden) return true;
     var ae = document.activeElement;
     if (!ae || !/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return false;
     return !ae.closest('#syncPanel');
@@ -1172,6 +1193,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     wrap.innerHTML = html;
     wrap.querySelectorAll('input[data-kind=pattern]').forEach(function(inp){
       applyCellColor(inp);
+      enhanceCellInput(inp);
       inp.addEventListener('change', function(){
         var staff = inp.dataset.staff, wd = inp.dataset.wd, val = inp.value.trim();
         state.weeklyPattern[staff] = state.weeklyPattern[staff] || {};
@@ -1279,20 +1301,95 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     list.innerHTML = '';
     state.staff.forEach(function(name){
       var row = document.createElement('div');
-      row.className = 'day-row';
+      row.className = 'day-row stack';
       row.innerHTML = '<span class="day-row-name">' + escapeHtml(name) + '</span>';
-      var input = document.createElement('input');
-      input.type = 'text'; input.setAttribute('list', 'shiftTypeOptions');
-      input.value = effectiveValue(name, iso);
-      input.dataset.staff = name; input.dataset.date = iso;
-      applyCellColor(input);
-      input.addEventListener('change', function(){
-        onMonthCellChange(input);
+      row.appendChild(buildChips(effectiveValue(name, iso), name, function(v){
+        setEffectiveValue(name, iso, v);
+        saveOverrideDoc(iso);
         if (monthView.mode === 'cal') renderCalendar();
-      });
-      row.appendChild(input);
+      }));
       list.appendChild(row);
     });
+  }
+
+  /* ---------- tap-friendly shift picker (big buttons instead of a tiny dropdown) ---------- */
+  var IS_TOUCH = !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
+
+  function buildChips(current, staffName, onPick){
+    var color = staffColor(staffName);
+    var box = document.createElement('div');
+    var chips = document.createElement('div');
+    chips.className = 'pick-chips';
+    var wrapCustom = document.createElement('div');
+    wrapCustom.className = 'pick-custom';
+    var custom = document.createElement('input');
+    custom.type = 'text';
+    custom.placeholder = 'その他（自由入力）';
+    custom.setAttribute('aria-label', 'その他のシフトを入力');
+    wrapCustom.appendChild(custom);
+    var buttons = [];
+
+    function mark(val){
+      buttons.forEach(function(b){
+        var on = b.dataset.v === val;
+        b.classList.toggle('sel', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.style.background = (on && val) ? '#' + color : '';
+        b.style.color = (on && val) ? textColorFor(color) : '';
+      });
+      custom.value = (val && !state.shiftTypes.some(function(t){ return t.name === val; })) ? val : '';
+    }
+    function pick(val){ onPick(val); mark(val); }
+    function addChip(val, html, extraClass){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pick-chip' + (extraClass ? ' ' + extraClass : '');
+      b.dataset.v = val;
+      b.innerHTML = html;
+      b.addEventListener('click', function(){ pick(val); });
+      chips.appendChild(b);
+      buttons.push(b);
+    }
+    state.shiftTypes.forEach(function(t){
+      addChip(t.name, '<span>' + escapeHtml(t.name) + '</span>' + (t.time ? '<small>' + escapeHtml(t.time) + '</small>' : ''));
+    });
+    addChip('', 'なし', 'clear');
+    custom.addEventListener('change', function(){ pick(custom.value.trim()); });
+    box.appendChild(chips);
+    box.appendChild(wrapCustom);
+    mark(current);
+    return box;
+  }
+
+  function openPicker(inp){
+    var staff = inp.dataset.staff;
+    var where;
+    if (inp.dataset.wd) where = inp.dataset.wd + '曜日の基本';
+    else {
+      var p = inp.dataset.date.split('-').map(Number);
+      where = p[1] + '/' + p[2] + '（' + WEEKDAYS[weekdayIndex(p[0], p[1], p[2])] + '）';
+    }
+    $('pickerLabel').textContent = staff + '　' + where;
+    var body = $('pickerBody');
+    body.innerHTML = '';
+    body.appendChild(buildChips(inp.value.trim(), staff, function(v){
+      inp.value = v;
+      inp.dispatchEvent(new Event('change', { bubbles:true }));
+      closePicker();
+    }));
+    $('pickerModal').hidden = false;
+  }
+  function closePicker(){
+    $('pickerModal').hidden = true;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    setTimeout(runDeferredPull, 100);
+  }
+  function enhanceCellInput(inp){
+    if (!IS_TOUCH) return;
+    inp.readOnly = true;
+    inp.setAttribute('inputmode', 'none');
+    inp.removeAttribute('list');
+    inp.addEventListener('click', function(){ openPicker(inp); });
   }
   function shiftModalDay(delta){
     var base = new Date(monthView.year, monthView.month-1, monthView.day);
@@ -1324,6 +1421,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     wrap.innerHTML = html;
     wrap.querySelectorAll('input[data-kind=month]').forEach(function(inp){
       applyCellColor(inp);
+      enhanceCellInput(inp);
       inp.addEventListener('change', function(){ onMonthCellChange(inp); });
     });
   }
@@ -1358,6 +1456,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       input.type = 'text'; input.setAttribute('list','shiftTypeOptions');
       input.value = val; input.dataset.staff = name; input.dataset.date = iso;
       applyCellColor(input);
+      enhanceCellInput(input);
       input.addEventListener('change', function(){ onMonthCellChange(input); });
       row.appendChild(input);
       list.appendChild(row);
@@ -1505,7 +1604,13 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     $('modalPrevBtn').addEventListener('click', function(){ shiftModalDay(-1); });
     $('modalNextBtn').addEventListener('click', function(){ shiftModalDay(1); });
     $('dayModal').addEventListener('click', function(e){ if (e.target === $('dayModal')) closeDayModal(); });
-    document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && !$('dayModal').hidden) closeDayModal(); });
+    $('pickerCloseBtn').addEventListener('click', closePicker);
+    $('pickerModal').addEventListener('click', function(e){ if (e.target === $('pickerModal')) closePicker(); });
+    document.addEventListener('keydown', function(e){
+      if (e.key !== 'Escape') return;
+      if (!$('pickerModal').hidden) closePicker();
+      else if (!$('dayModal').hidden) closeDayModal();
+    });
     $('modeGridBtn').addEventListener('click', function(){ monthView.mode='grid'; renderMonthTab(); });
     $('modeDayBtn').addEventListener('click', function(){
       monthView.mode='day';
