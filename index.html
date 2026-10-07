@@ -168,10 +168,16 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
 .cal-cell.today .cal-num{background:var(--accent);color:var(--accent-ink);}
 .cal-hol{font-size:.66rem;color:var(--sun);line-height:1.3;}
 .cal-chip{font-size:.72rem;line-height:1.35;padding:1px 6px;border-radius:4px;background:var(--accent-soft);color:var(--ink);overflow-wrap:anywhere;}
-.cal-chip b{font-weight:700;margin-left:3px;}
+.cal-chip{display:flex;align-items:baseline;gap:4px;}
+.cal-chip .n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cal-chip b{font-weight:700;flex:none;}
+.cal-chip b.s{display:none;}
 .cal-hint{font-size:.76rem;color:var(--ink-muted);margin:8px 0 0;}
 .cal-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
 .cal-legend .cal-chip{font-size:.74rem;padding:2px 8px;}
+.cal-legend .cal-chip.leg-shift{background:transparent;border:1px solid var(--border);}
+.cal-legend .cal-chip.leg-shift b.s,.cal-legend .cal-chip.leg-shift b{display:inline;}
+.cal-legend .cal-chip .n{white-space:normal;}
 @media (max-width:700px){
   #app{padding-inline:10px;}
   .panel{padding:10px;}
@@ -180,8 +186,10 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
   .cal-cell{min-height:84px;padding:2px 2px 4px;gap:1px;}
   .cal-num{font-size:.72rem;min-width:1.6em;height:1.6em;line-height:1.6em;}
   .cal-hol{display:none;}
-  .cal-cell .cal-chip{font-size:.6rem;line-height:1.35;padding:0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:3px;}
-  .cal-cell .cal-chip b{display:none;}
+  .cal-cell .cal-chip{display:block;font-size:.52rem;line-height:1.25;padding:1px 2px;border-radius:3px;}
+  .cal-cell .cal-chip .n{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700;}
+  .cal-cell .cal-chip b.full{display:block;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cal-cell .cal-chip b.s{display:none;}
 }
 
 .modal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;}
@@ -268,7 +276,13 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
 
   <div class="backup-row">
     <button type="button" class="btn ghost" id="exportBackupBtn">⇩ バックアップを保存</button>
-    <label class="btn ghost file-label">⇧ バックアップを読み込む<input type="file" id="importBackupInput" accept="application/json" hidden></label>
+    <button type="button" class="btn ghost" id="importBackupBtn">🔒 バックアップを読み込む</button>
+    <input type="file" id="importBackupInput" accept="application/json" hidden>
+    <div class="lock-bar" id="importLockBar" hidden>
+      <span>バックアップの読み込みは、今のデータをすべて置き換えるため管理者専用です。</span>
+      <input type="password" id="importLockInput" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="パスコード" aria-label="パスコード">
+      <button type="button" class="btn" id="importLockGo">解除して選ぶ</button>
+    </div>
     <span class="saved-label" id="savedLabel"></span>
     <span class="backup-hint">自動同期を設定していない場合、データはこの端末・このブラウザだけに保存されます。別の端末に同じ内容を入れたいときは、こちらでバックアップを保存して、もう一方の端末でこのファイルを開いて読み込んでください。</span>
   </div>
@@ -285,7 +299,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       <div class="panel-head">
         <div>
           <h2>スタッフ</h2>
-          <p>シフトを組むメンバーを登録します。名前はあとから変更・並べ替えできます。</p>
+          <p>シフトを組むメンバー（社員・アルバイト）を登録します。左の色の四角はその人の色で、表やカレンダーの表示に使われます。</p>
         </div>
       </div>
       <div class="lock-bar" data-lock></div>
@@ -300,7 +314,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       <div class="panel-head">
         <div>
           <h2>シフトの種類</h2>
-          <p>早番・遅番・休みなど。色は表の見やすさに使われます。</p>
+          <p>早番・遅番・休みなどの種類を登録します（入力欄の候補に出ます）。</p>
         </div>
       </div>
       <div class="lock-bar" data-lock></div>
@@ -413,11 +427,47 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
         { name:'遅番', time:'14:00-19:00', color:'D9E1F2' },
         { name:'休み', time:'', color:'F4CCCC' }
       ],
+      staffColors: {},
       weeklyPattern: {},
       overrides: {}
     };
   }
   var state = defaultState();
+
+  function normalizeState(p){
+    p = p || {};
+    var colors = {};
+    if (p.staffColors && typeof p.staffColors === 'object'){
+      Object.keys(p.staffColors).forEach(function(k){
+        var c = String(p.staffColors[k] || '').replace('#','').toUpperCase();
+        if (/^[0-9A-F]{6}$/.test(c)) colors[k] = c;
+      });
+    }
+    return {
+      staff: Array.isArray(p.staff) ? p.staff : [],
+      shiftTypes: Array.isArray(p.shiftTypes) ? p.shiftTypes : defaultState().shiftTypes,
+      staffColors: colors,
+      weeklyPattern: (p.weeklyPattern && typeof p.weeklyPattern === 'object') ? p.weeklyPattern : {},
+      overrides: (p.overrides && typeof p.overrides === 'object') ? p.overrides : {}
+    };
+  }
+
+  /* each staff member gets their own colour (used in every table / calendar) */
+  var STAFF_PALETTE = ['FFD6D6','FFE3C2','FFF2B3','DDF2C2','C2EFD8','BFE9EE','C7DCF7','D9D0F5','F2CCEB','E5D3C0','D0D8DE','F7C6A8'];
+  function ensureStaffColors(){
+    var changed = false;
+    var used = {};
+    state.staff.forEach(function(n){ if (state.staffColors[n]) used[state.staffColors[n]] = true; });
+    state.staff.forEach(function(n, i){
+      if (state.staffColors[n]) return;
+      var pick = STAFF_PALETTE.filter(function(c){ return !used[c]; })[0] || STAFF_PALETTE[i % STAFF_PALETTE.length];
+      state.staffColors[n] = pick;
+      used[pick] = true;
+      changed = true;
+    });
+    return changed;
+  }
+  function staffColor(name){ return state.staffColors[name] || 'E5E7EB'; }
 
   var monthView = (function(){
     var t = new Date();
@@ -441,13 +491,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     try {
       var raw = localStorage.getItem(LS_KEY);
       if (!raw){ state = defaultState(); return; }
-      var parsed = JSON.parse(raw);
-      state = {
-        staff: Array.isArray(parsed.staff) ? parsed.staff : [],
-        shiftTypes: Array.isArray(parsed.shiftTypes) ? parsed.shiftTypes : defaultState().shiftTypes,
-        weeklyPattern: (parsed.weeklyPattern && typeof parsed.weeklyPattern === 'object') ? parsed.weeklyPattern : {},
-        overrides: (parsed.overrides && typeof parsed.overrides === 'object') ? parsed.overrides : {}
-      };
+      state = normalizeState(JSON.parse(raw));
     } catch(e){
       state = defaultState();
     }
@@ -538,8 +582,29 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     };
   }
 
+  // The sha of the remote file as last seen by THIS device. Before overwriting the remote
+  // we compare it with the current remote sha, so a device that has never synced (or is stale)
+  // can never silently replace newer shared data with its own blank / old copy.
+  var LAST_SHA_KEY = 'shiftMakerLastSha';
+  function syncId(){ return githubConfig ? [githubConfig.owner, githubConfig.repo, githubConfig.path, githubConfig.branch || 'main'].join('/') : ''; }
+  function setLastSha(sha){
+    try {
+      if (sha) localStorage.setItem(LAST_SHA_KEY, JSON.stringify({ id: syncId(), sha: sha }));
+      else localStorage.removeItem(LAST_SHA_KEY);
+    } catch(e){}
+  }
+  function getLastSha(){
+    try {
+      var o = JSON.parse(localStorage.getItem(LAST_SHA_KEY) || 'null');
+      return (o && o.id === syncId()) ? o.sha : null;
+    } catch(e){ return null; }
+  }
+  function hasLocalData(){
+    return state.staff.length > 0 || Object.keys(state.overrides).length > 0 || Object.keys(state.weeklyPattern).length > 0;
+  }
+
   function githubGetFile(cfg){
-    return fetch(ghBaseUrl(cfg) + '?ref=' + encodeURIComponent(cfg.branch || 'main'), { headers: ghHeaders(cfg.token) }).then(function(r){
+    return fetch(ghBaseUrl(cfg) + '?ref=' + encodeURIComponent(cfg.branch || 'main'), { headers: ghHeaders(cfg.token), cache: 'no-store' }).then(function(r){
       if (r.status === 404) return { exists:false, sha:null, data:null };
       if (!r.ok) return r.text().then(function(t){ throw { httpStatus:r.status, body:t }; });
       return r.json().then(function(j){
@@ -550,7 +615,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     });
   }
   function githubFetchSha(cfg){
-    return fetch(ghBaseUrl(cfg) + '?ref=' + encodeURIComponent(cfg.branch || 'main'), { headers: ghHeaders(cfg.token) }).then(function(r){
+    return fetch(ghBaseUrl(cfg) + '?ref=' + encodeURIComponent(cfg.branch || 'main'), { headers: ghHeaders(cfg.token), cache: 'no-store' }).then(function(r){
       if (r.status === 404) return null;
       if (!r.ok) return r.text().then(function(t){ throw { httpStatus:r.status, body:t }; });
       return r.json().then(function(j){ return j.sha; });
@@ -574,17 +639,14 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
   }
 
   function applyRemoteData(data){
-    var next = {
-      staff: Array.isArray(data.staff) ? data.staff : [],
-      shiftTypes: Array.isArray(data.shiftTypes) ? data.shiftTypes : defaultState().shiftTypes,
-      weeklyPattern: (data.weeklyPattern && typeof data.weeklyPattern === 'object') ? data.weeklyPattern : {},
-      overrides: (data.overrides && typeof data.overrides === 'object') ? data.overrides : {}
-    };
+    var next = normalizeState(data);
     if (JSON.stringify(next) === JSON.stringify(state)) return;
     state = next;
+    var assigned = ensureStaffColors();
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch(e){}
     refreshTypeOptions();
     renderAll();
+    if (assigned) persist();
   }
 
   // true while the user is typing in a field or has the day-edit window open:
@@ -604,8 +666,14 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     return githubGetFile(githubConfig).then(function(res){
       if (isEditing() || dirty || isPushing){ pullDeferred = true; updateSyncStatus('ok'); return; }
       pullDeferred = false;
+      if (res.exists && !(res.data && typeof res.data === 'object')){
+        updateSyncStatus('error', '共有データの形式が不正です（上書き防止のため送信を止めました）');
+        return;
+      }
       githubSha = res.sha;
-      if (res.exists && res.data && typeof res.data === 'object') applyRemoteData(res.data);
+      setLastSha(res.sha);
+      if (res.exists) applyRemoteData(res.data);
+      else if (hasLocalData()) schedulePush();
       updateSyncStatus('ok');
       pruneOldOverrides();
     }).catch(function(e){
@@ -630,6 +698,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     updateSyncStatus('syncing');
     githubPutFile(githubConfig, state, githubSha).then(function(newSha){
       githubSha = newSha;
+      setLastSha(newSha);
       isPushing = false;
       dirty = false;
       pullDeferred = false;
@@ -700,14 +769,39 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     if (!owner || !repo){ toast('ユーザー名とリポジトリ名を入力してください'); return; }
     if (!token && !(githubConfig && githubConfig.token)){ toast('Personal Access Token を入力してください'); return; }
     var cfg = { owner:owner, repo:repo, path:path, branch:branch, token: token || githubConfig.token };
+    var previous = githubConfig;
     saveGithubConfig(cfg);
+    // a (re)configured device always starts clean: pull first, never push a leftover edit
     githubSha = null;
+    dirty = false;
+    pullDeferred = false;
+    clearTimeout(pushTimer);
+    try { localStorage.removeItem(PENDING_PUSH_KEY); } catch(e){}
+    setLastSha(null);
     $('syncPanel').hidden = true;
-    $('disconnectSyncBtn').hidden = false;
-    $('syncNowBtn').hidden = false;
-    pullFromGithub().then(function(){
-      schedulePush();
-      startPolling();
+    updateSyncStatus('syncing');
+    githubGetFile(cfg).then(function(res){
+      var remoteDiffers = res.exists && res.data && JSON.stringify(normalizeState(res.data)) !== JSON.stringify(state);
+      if (remoteDiffers && hasLocalData()){
+        var ok = window.confirm('この端末に入っているデータは、GitHub上の共有データで置き換えられます。\nよろしいですか？\n\n（キャンセルすると同期の設定を取り消します。先に「バックアップを保存」しておくと安心です）');
+        if (!ok){
+          githubConfig = previous;
+          try {
+            if (previous) localStorage.setItem(GH_CONFIG_KEY, JSON.stringify(previous));
+            else localStorage.removeItem(GH_CONFIG_KEY);
+          } catch(e){}
+          updateSyncStatus(previous ? 'ok' : 'off');
+          toast('同期の設定を取り消しました');
+          return;
+        }
+      }
+      $('disconnectSyncBtn').hidden = false;
+      $('syncNowBtn').hidden = false;
+      return pullFromGithub().then(function(){ startPolling(); });
+    }).catch(function(e){
+      updateSyncStatus('error', describeGithubError(e));
+      $('disconnectSyncBtn').hidden = false;
+      $('syncNowBtn').hidden = false;
     });
   }
   function saveStaffList(){ persist(); }
@@ -721,16 +815,12 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     saveFile('シフト表バックアップ_'+stamp+'.json', new Blob([payload], { type:'application/json' }));
   }
   function importBackupFile(file){
+    if (!adminUnlocked){ toast('バックアップの読み込みは管理者専用です'); return; }
     var reader = new FileReader();
     reader.onload = function(){
       try {
-        var parsed = JSON.parse(String(reader.result));
-        state = {
-          staff: Array.isArray(parsed.staff) ? parsed.staff : [],
-          shiftTypes: Array.isArray(parsed.shiftTypes) ? parsed.shiftTypes : defaultState().shiftTypes,
-          weeklyPattern: (parsed.weeklyPattern && typeof parsed.weeklyPattern === 'object') ? parsed.weeklyPattern : {},
-          overrides: (parsed.overrides && typeof parsed.overrides === 'object') ? parsed.overrides : {}
-        };
+        state = normalizeState(JSON.parse(String(reader.result)));
+        ensureStaffColors();
         persist();
         refreshTypeOptions();
         renderAll();
@@ -821,28 +911,12 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
 
   function chainWrite(path, fn){ return fn(); }
 
-  function colorForValue(val){
-    var t = state.shiftTypes.find(function(t){ return t.name === val; });
-    return t ? (t.color||'').replace('#','') : null;
-  }
   function textColorFor(hex){
     hex = (hex||'FFFFFF').replace('#','');
     if (hex.length !== 6) return '';
     var r=parseInt(hex.slice(0,2),16), g=parseInt(hex.slice(2,4),16), b=parseInt(hex.slice(4,6),16);
     var lum = (0.299*r+0.587*g+0.114*b)/255;
     return lum > 0.6 ? '#1a1a1a' : '#ffffff';
-  }
-  function hslToHex(h,s,l){
-    s/=100; l/=100;
-    var c=(1-Math.abs(2*l-1))*s, x=c*(1-Math.abs((h/60)%2-1)), m=l-c/2, r,g,b;
-    if (h<60){r=c;g=x;b=0;} else if (h<120){r=x;g=c;b=0;} else if (h<180){r=0;g=c;b=x;}
-    else if (h<240){r=0;g=x;b=c;} else if (h<300){r=x;g=0;b=c;} else {r=c;g=0;b=x;}
-    var toHex=function(v){ var h=Math.round((v+m)*255).toString(16).padStart(2,'0'); return h; };
-    return (toHex(r)+toHex(g)+toHex(b)).toUpperCase();
-  }
-  function randomPastel(){
-    var hues=[0,30,50,90,150,190,220,260,300,330];
-    return hslToHex(hues[Math.floor(Math.random()*hues.length)], 55, 80);
   }
   function displayWidth(text){
     var w=0;
@@ -927,6 +1001,8 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       }
     });
     ['panel-staff', 'panel-types'].forEach(function(id){ $(id).classList.toggle('locked', !adminUnlocked); });
+    $('importBackupBtn').textContent = (adminUnlocked ? '⇧' : '🔒') + ' バックアップを読み込む';
+    if (adminUnlocked) $('importLockBar').hidden = true;
   }
 
   /* ---------- staff tab ---------- */
@@ -941,6 +1017,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       var row = document.createElement('div');
       row.className = 'staff-row';
       row.innerHTML =
+        '<input type="color" class="staff-color-input" title="この人の色" value="#'+staffColor(name)+'">'+
         '<input type="text" class="staff-name-input" value="'+escapeAttr(name)+'">'+
         '<div class="row-actions">'+
           '<button type="button" class="icon-btn" data-act="up" '+(i===0?'disabled':'')+'>↑</button>'+
@@ -952,6 +1029,11 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
         list.appendChild(row);
         return;
       }
+      row.querySelector('.staff-color-input').addEventListener('input', function(e){
+        if (!adminUnlocked) return;
+        state.staffColors[name] = e.target.value.replace('#','').toUpperCase();
+        persist(); renderPatternTab(); renderMonthTab();
+      });
       row.querySelector('.staff-name-input').addEventListener('change', function(e){ renameStaff(i, e.target.value.trim()); });
       row.querySelector('[data-act=up]').addEventListener('click', function(){ moveStaff(i,-1); });
       row.querySelector('[data-act=down]').addEventListener('click', function(){ moveStaff(i,1); });
@@ -966,6 +1048,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     if (!name) return;
     if (state.staff.indexOf(name) !== -1){ toast('同じ名前が既にあります'); return; }
     state.staff.push(name);
+    ensureStaffColors();
     input.value = '';
     renderStaffTab(); renderPatternTab(); renderMonthTab();
     saveStaffList();
@@ -977,6 +1060,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     if (newName === old) return;
     if (state.staff.indexOf(newName) !== -1){ toast('同じ名前が既にあります'); renderStaffTab(); return; }
     state.staff[i] = newName;
+    if (state.staffColors[old]){ state.staffColors[newName] = state.staffColors[old]; delete state.staffColors[old]; }
     if (state.weeklyPattern[old]){ state.weeklyPattern[newName] = state.weeklyPattern[old]; delete state.weeklyPattern[old]; }
     Object.keys(state.overrides).forEach(function(dateIso){
       var ov = state.overrides[dateIso];
@@ -997,6 +1081,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     if (!adminUnlocked) return;
     var name = state.staff[i];
     state.staff.splice(i,1);
+    delete state.staffColors[name];
     delete state.weeklyPattern[name];
     Object.keys(state.overrides).forEach(function(dateIso){
       var ov = state.overrides[dateIso];
@@ -1018,7 +1103,6 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       var row = document.createElement('div');
       row.className = 'type-row';
       row.innerHTML =
-        '<input type="color" class="type-color-input" value="#'+(t.color||'FFFFFF')+'">'+
         '<input type="text" class="type-name-input" placeholder="名称" value="'+escapeAttr(t.name||'')+'">'+
         '<input type="text" class="type-time-input" placeholder="時間帯（任意）" value="'+escapeAttr(t.time||'')+'">'+
         '<button type="button" class="icon-btn danger" data-act="del">✕</button>';
@@ -1027,10 +1111,6 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
         list.appendChild(row);
         return;
       }
-      row.querySelector('.type-color-input').addEventListener('input', function(e){
-        t.color = e.target.value.replace('#','').toUpperCase();
-        saveShiftTypes(); refreshTypeOptions(); renderPatternTab(); renderMonthTab();
-      });
       row.querySelector('.type-name-input').addEventListener('change', function(e){
         var newName = e.target.value.trim();
         if (!newName){ e.target.value = t.name; return; }
@@ -1065,7 +1145,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
   }
   function addShiftType(){
     if (!adminUnlocked) return;
-    state.shiftTypes.push({ name:'新しい種類', time:'', color: randomPastel() });
+    state.shiftTypes.push({ name:'新しい種類', time:'' });
     renderTypesTab(); refreshTypeOptions();
     saveShiftTypes();
   }
@@ -1103,7 +1183,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     });
   }
   function applyCellColor(inp){
-    var color = colorForValue(inp.value.trim());
+    var color = inp.value.trim() ? staffColor(inp.dataset.staff) : null;
     if (color){ inp.style.background = '#'+color; inp.style.color = textColorFor(color); }
     else { inp.style.background = ''; inp.style.color = ''; }
   }
@@ -1155,19 +1235,22 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       state.staff.forEach(function(name){
         var v = effectiveValue(name, d.iso);
         if (!v) return;
-        var color = colorForValue(v);
-        var style = color ? ' style="background:#' + color + ';color:' + textColorFor(color) + '"' : '';
-        html += '<div class="cal-chip"' + style + '>' + escapeHtml(name) + '<b>' + escapeHtml(v) + '</b></div>';
+        var color = staffColor(name);
+        var style = ' style="background:#' + color + ';color:' + textColorFor(color) + '"';
+        html += '<div class="cal-chip"' + style + '><span class="n">' + escapeHtml(name) + '</span><b class="full">' + escapeHtml(v) + '</b><b class="s">' + escapeHtml(Array.from(v)[0]) + '</b></div>';
       });
       html += '</div>';
     });
     var trail = (7 - (lead + days.length) % 7) % 7;
     for (var j=0; j<trail; j++) html += '<div class="cal-cell blank"></div>';
-    $('calLegend').innerHTML = state.shiftTypes.map(function(t){
-      var c = (t.color || '').replace('#', '');
-      var style = c ? ' style="background:#' + c + ';color:' + textColorFor(c) + '"' : '';
-      return '<span class="cal-chip"' + style + '>' + escapeHtml(t.name) + (t.time ? '　' + escapeHtml(t.time) : '') + '</span>';
-    }).join('');
+    $('calLegend').innerHTML =
+      state.staff.map(function(n){
+        var c = staffColor(n);
+        return '<span class="cal-chip" style="background:#' + c + ';color:' + textColorFor(c) + '"><span class="n">' + escapeHtml(n) + '</span></span>';
+      }).join('') +
+      state.shiftTypes.map(function(t){
+        return '<span class="cal-chip leg-shift"><b>' + escapeHtml(Array.from(t.name)[0] || '') + '</b><span class="n">' + escapeHtml(t.name) + (t.time ? '　' + escapeHtml(t.time) : '') + '</span></span>';
+      }).join('');
     var grid = $('calGrid');
     grid.innerHTML = html;
     grid.querySelectorAll('.cal-cell[data-date]').forEach(function(cell){
@@ -1317,14 +1400,15 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       var r = idx+3;
       var nameCell = ws.getCell(r,1);
       nameCell.value = name; nameCell.font = { bold:true };
+      var staffFill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF'+staffColor(name) } };
+      nameCell.fill = staffFill;
       days.forEach(function(d, i){
         var c = i+2;
         var val = effectiveValue(name, d.iso);
         var cell = ws.getCell(r,c);
         cell.value = val;
         cell.alignment = { horizontal:'center' };
-        var color = colorForValue(val);
-        if (color) cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF'+color } };
+        if (val) cell.fill = staffFill;
       });
     });
     var lastRow = state.staff.length+2, lastCol = days.length+1;
@@ -1381,6 +1465,8 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
       return parseInt(iso.slice(0,4),10) <= cutoffYear;
     });
     if (!staleDates.length) return;
+    // if every record looks "old", this device's clock is probably wrong: never wipe everything
+    if (staleDates.length === Object.keys(state.overrides).length) return;
     staleDates.forEach(function(dateIso){ delete state.overrides[dateIso]; });
     persist();
     renderMonthTab();
@@ -1432,6 +1518,21 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
     $('exportCsvBtn').addEventListener('click', exportCsv);
     $('exportXlsxBtn').addEventListener('click', exportXlsx);
     $('exportBackupBtn').addEventListener('click', exportBackup);
+    $('importBackupBtn').addEventListener('click', function(){
+      if (adminUnlocked){ $('importBackupInput').click(); return; }
+      $('importLockBar').hidden = false;
+      $('importLockInput').focus();
+    });
+    var tryImportUnlock = function(){
+      var inp = $('importLockInput');
+      if (inp.value !== ADMIN_CODE){ toast('パスコードが違います'); inp.value = ''; return; }
+      inp.value = '';
+      $('importLockBar').hidden = true;
+      setAdmin(true);
+      $('importBackupInput').click();
+    };
+    $('importLockGo').addEventListener('click', tryImportUnlock);
+    $('importLockInput').addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); tryImportUnlock(); } });
     $('importBackupInput').addEventListener('change', function(e){
       var file = e.target.files[0];
       if (file) importBackupFile(file);
@@ -1453,6 +1554,7 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
   function init(){
     wireStaticUI();
     loadState();
+    if (ensureStaffColors()) persist();
     refreshTypeOptions();
     renderLockBars();
     renderAll();
@@ -1468,11 +1570,20 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
         // last session ended (closed, crashed, lost connection) before an edit was
         // confirmed pushed — send THIS device's copy up first instead of pulling,
         // or that unconfirmed edit would be silently overwritten and lost for good
+        // ...but only if the shared data has not changed since this device last saw it. If it
+        // has (or this device never synced), the shared copy wins: pushing would wipe it.
         dirty = true;
         updateSyncStatus('syncing');
         githubFetchSha(githubConfig).then(function(sha){
-          githubSha = sha;
-          pushToGithub();
+          if (sha === null || sha === getLastSha()){
+            githubSha = sha;
+            pushToGithub();
+          } else {
+            dirty = false;
+            try { localStorage.removeItem(PENDING_PUSH_KEY); } catch(e){}
+            toast('他の端末で更新されていたため、共有データを読み込みました');
+            pullFromGithub();
+          }
         }).catch(function(e){ updateSyncStatus('error', describeGithubError(e)); });
       } else {
         pullFromGithub();
