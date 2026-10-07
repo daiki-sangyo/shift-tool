@@ -1289,7 +1289,13 @@ table.grid-table input[readonly]{cursor:pointer;}
     $('dayModal').hidden = false;
     renderDayModal();
   }
-  function closeDayModal(){ $('dayModal').hidden = true; setTimeout(runDeferredPull, 100); }
+  function closeDayModal(){
+    // commit a half-typed 「その他」 entry first (iOS does not blur a field when a blank area is tapped)
+    var ae = document.activeElement;
+    if (ae && ae.blur && $('dayModal').contains(ae)) ae.blur();
+    $('dayModal').hidden = true;
+    setTimeout(runDeferredPull, 100);
+  }
   function renderDayModal(){
     var iso = isoDate(monthView.year, monthView.month, monthView.day);
     var wd = weekdayIndex(monthView.year, monthView.month, monthView.day);
@@ -1603,9 +1609,17 @@ table.grid-table input[readonly]{cursor:pointer;}
     $('modalCloseBtn').addEventListener('click', closeDayModal);
     $('modalPrevBtn').addEventListener('click', function(){ shiftModalDay(-1); });
     $('modalNextBtn').addEventListener('click', function(){ shiftModalDay(1); });
-    $('dayModal').addEventListener('click', function(e){ if (e.target === $('dayModal')) closeDayModal(); });
+    // tapping any blank part of a pop-up (its white card or the dim backdrop) closes it;
+    // buttons and input fields keep working normally
+    var closeOnBlankTap = function(id, closer){
+      $(id).addEventListener('click', function(e){
+        if (e.target.closest && e.target.closest('button, input, select, textarea, a, label')) return;
+        closer();
+      });
+    };
+    closeOnBlankTap('dayModal', closeDayModal);
     $('pickerCloseBtn').addEventListener('click', closePicker);
-    $('pickerModal').addEventListener('click', function(e){ if (e.target === $('pickerModal')) closePicker(); });
+    closeOnBlankTap('pickerModal', closePicker);
     document.addEventListener('keydown', function(e){
       if (e.key !== 'Escape') return;
       if (!$('pickerModal').hidden) closePicker();
