@@ -21,6 +21,7 @@ body{margin:0;}
   --accent-ink:#FFFFFF;
   --accent-soft:#E4EBF0;
   --gap-bg:#FBE3E3;
+  --over-bg:#FFF1B3;
   --sat:#3171B5;
   --sun:#B5413A;
   --danger:#B5413A;
@@ -36,7 +37,7 @@ body{margin:0;}
     --ink-muted:#A89F8F;
     --accent:#86ABC9;
     --accent-ink:#17232B;
-    --accent-soft:#2B3B47; --gap-bg:#4A2A2A;
+    --accent-soft:#2B3B47; --gap-bg:#4A2A2A; --over-bg:#4D4420;
     --sat:#6FA8E0;
     --sun:#E08478;
     --danger:#E08478;
@@ -52,7 +53,7 @@ body{margin:0;}
   --ink-muted:#A89F8F;
   --accent:#86ABC9;
   --accent-ink:#17232B;
-  --accent-soft:#2B3B47; --gap-bg:#4A2A2A;
+  --accent-soft:#2B3B47; --gap-bg:#4A2A2A; --over-bg:#4D4420;
   --sat:#6FA8E0;
   --sun:#E08478;
   --danger:#E08478;
@@ -161,8 +162,12 @@ table.grid-table input[type=text]:focus{outline:2px solid var(--accent);outline-
 .cal-cell:hover{background:var(--accent-soft);}
 .cal-cell.gap{background:var(--gap-bg);}
 .cal-cell.gap:hover{background:var(--gap-bg);filter:brightness(.96);}
+.cal-cell.over{background:var(--over-bg);}
+.cal-cell.over:hover{background:var(--over-bg);filter:brightness(.96);}
 table.grid-table th.gap{background:var(--gap-bg);}
+table.grid-table th.over{background:var(--over-bg);}
 .cal-legend .cal-chip.leg-gap{background:var(--gap-bg);border:1px solid var(--border);}
+.cal-legend .cal-chip.leg-over{background:var(--over-bg);border:1px solid var(--border);}
 .alba-check{display:flex;align-items:center;gap:4px;font-size:.78rem;color:var(--ink-muted);white-space:nowrap;}
 .alba-check input{width:auto;}
 .type-row{flex-wrap:wrap;}
@@ -333,7 +338,7 @@ table.grid-table input[readonly]{cursor:pointer;}
       <div class="panel-head">
         <div>
           <h2>シフトの種類</h2>
-          <p>早番・遅番・休みなどの種類を登録します。「アルバイト出勤の判定」にチェックした種類が1人も入っていない日は、カレンダーが薄い赤になります。</p>
+          <p>早番・遅番・休みなどの種類を登録します。「アルバイト出勤の判定」にチェックした種類が1人も入っていない日は薄い赤、2人以上かぶっている日は黄色で、カレンダーに表示されます。</p>
         </div>
       </div>
       <div class="lock-bar" data-lock></div>
@@ -502,10 +507,17 @@ table.grid-table input[readonly]{cursor:pointer;}
   function albaKeyNames(){
     return state.shiftTypes.filter(function(t){ return t.alba; }).map(function(t){ return t.name; });
   }
+  function albaCount(iso, keys){
+    return state.staff.filter(function(n){ return keys.indexOf(effectiveValue(n, iso)) !== -1; }).length;
+  }
   function albaGap(iso, keys){
     keys = keys || albaKeyNames();
-    if (!keys.length) return false;
-    return !state.staff.some(function(n){ return keys.indexOf(effectiveValue(n, iso)) !== -1; });
+    return keys.length > 0 && albaCount(iso, keys) === 0;
+  }
+  // two or more people on a flagged shift the same day
+  function albaOver(iso, keys){
+    keys = keys || albaKeyNames();
+    return keys.length > 0 && albaCount(iso, keys) >= 2;
   }
 
   var monthView = (function(){
@@ -1275,7 +1287,7 @@ table.grid-table input[readonly]{cursor:pointer;}
     var todayIso = isoFromDate(new Date());
     var albaKeys = albaKeyNames();
     days.forEach(function(d){
-      var cls = 'cal-cell' + (d.holiday ? ' hol' : '') + (d.wd===5 ? ' sat' : '') + (d.wd===6 ? ' sun' : '') + (d.iso===todayIso ? ' today' : '') + (albaGap(d.iso, albaKeys) ? ' gap' : '');
+      var cls = 'cal-cell' + (d.holiday ? ' hol' : '') + (d.wd===5 ? ' sat' : '') + (d.wd===6 ? ' sun' : '') + (d.iso===todayIso ? ' today' : '') + (albaGap(d.iso, albaKeys) ? ' gap' : '') + (albaOver(d.iso, albaKeys) ? ' over' : '');
       html += '<div class="' + cls + '" role="button" tabindex="0" data-date="' + d.iso + '">';
       html += '<div class="cal-date"><span class="cal-num">' + d.d + '</span>' + (d.holiday ? '<span class="cal-hol">' + escapeHtml(d.holiday) + '</span>' : '') + '</div>';
       state.staff.forEach(function(name){
@@ -1297,7 +1309,8 @@ table.grid-table input[readonly]{cursor:pointer;}
       state.shiftTypes.map(function(t){
         return '<span class="cal-chip leg-shift"><b>' + escapeHtml(Array.from(t.name)[0] || '') + '</b><span class="n">' + escapeHtml(t.name) + (t.time ? '　' + escapeHtml(t.time) : '') + '</span></span>';
       }).join('') +
-      (albaKeys.length ? '<span class="cal-chip leg-gap"><span class="n">薄い赤＝「' + albaKeys.map(escapeHtml).join('」「') + '」が誰にも入っていない日</span></span>' : '');
+      (albaKeys.length ? '<span class="cal-chip leg-gap"><span class="n">薄い赤＝「' + albaKeys.map(escapeHtml).join('」「') + '」が誰にも入っていない日</span></span>' +
+        '<span class="cal-chip leg-over"><span class="n">黄＝「' + albaKeys.map(escapeHtml).join('」「') + '」が2人以上かぶっている日</span></span>' : '');
     var grid = $('calGrid');
     grid.innerHTML = html;
     grid.querySelectorAll('.cal-cell[data-date]').forEach(function(cell){
@@ -1326,7 +1339,7 @@ table.grid-table input[readonly]{cursor:pointer;}
     var wd = weekdayIndex(monthView.year, monthView.month, monthView.day);
     var h = holidayName(iso);
     var label = $('modalLabel');
-    label.textContent = monthView.year + '/' + monthView.month + '/' + monthView.day + '（' + WEEKDAYS[wd] + (h ? '・' + h : '') + '）' + (albaGap(iso) ? '　※アルバイト出勤なし' : '');
+    label.textContent = monthView.year + '/' + monthView.month + '/' + monthView.day + '（' + WEEKDAYS[wd] + (h ? '・' + h : '') + '）' + (albaGap(iso) ? '　※アルバイト出勤なし' : '') + (albaOver(iso) ? '　※アルバイト出勤が2人以上' : '');
     label.style.color = h ? 'var(--sun)' : (wd===6 ? 'var(--sun)' : wd===5 ? 'var(--sat)' : '');
     var list = $('modalList');
     list.innerHTML = '';
@@ -1434,7 +1447,7 @@ table.grid-table input[readonly]{cursor:pointer;}
     renderHolidayLegend(days);
     var html = '<table class="grid-table month-table"><thead><tr><th class="name-col sticky">氏名</th>';
     days.forEach(function(d){
-      var cls = (d.holiday ? 'sun' : (d.wd===5?'sat':d.wd===6?'sun':'')) + (albaGap(d.iso) ? ' gap' : '');
+      var cls = (d.holiday ? 'sun' : (d.wd===5?'sat':d.wd===6?'sun':'')) + (albaGap(d.iso) ? ' gap' : '') + (albaOver(d.iso) ? ' over' : '');
       var title = d.holiday ? ' title="'+escapeAttr(d.holiday)+'"' : '';
       html += '<th class="'+cls+'"'+title+'>'+d.d+'<br><span class="wd-label">'+WEEKDAYS[d.wd]+'</span></th>';
     });
@@ -1528,6 +1541,7 @@ table.grid-table input[readonly]{cursor:pointer;}
         cell.font = { bold:true, color:{argb:color} };
         cell.alignment = { horizontal:'center' };
         if (albaGap(d.iso)) cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFBE3E3' } };
+        else if (albaOver(d.iso)) cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFF1B3' } };
       });
     });
     state.staff.forEach(function(name, idx){
