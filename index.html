@@ -290,8 +290,9 @@ table.grid-table input[readonly]{cursor:pointer;}
       <input type="text" id="ghRepo" placeholder="リポジトリ名（例: shift-data）">
       <input type="text" id="ghPath" placeholder="ファイル名" value="shift-data.json">
       <input type="text" id="ghBranch" placeholder="ブランチ名" value="main">
-      <input type="password" id="ghToken" placeholder="Personal Access Token">
+      <input type="password" id="ghToken" placeholder="Personal Access Token" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
     </div>
+    <p class="sync-help" id="ghTokenInfo" hidden></p>
     <div class="sync-actions">
       <button type="button" class="btn" id="saveSyncBtn">保存して同期開始</button>
       <button type="button" class="btn ghost" id="cancelSyncBtn">閉じる</button>
@@ -580,10 +581,29 @@ table.grid-table input[readonly]{cursor:pointer;}
     return new TextDecoder('utf-8').decode(bytes);
   }
 
+  // Phones (esp. Android keyboards / chat apps) sometimes paste a token with an invisible
+  // space, line break, zero-width character, or full-width letters. GitHub then rejects it
+  // with 401, so strip those before using / saving it.
+  function cleanToken(t){
+    return String(t || '')
+      .replace(/[！-～]/g, function(c){ return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .replace(/[\s ​-‍⁠﻿]/g, '');
+  }
+  function tokenHint(t){
+    t = t || '';
+    return (t.length > 18 ? t.slice(0, 14) + '…' + t.slice(-4) : '') + '（' + t.length + '文字）';
+  }
   function loadGithubConfig(){
     try {
       var raw = localStorage.getItem(GH_CONFIG_KEY);
       githubConfig = raw ? JSON.parse(raw) : null;
+      if (githubConfig && githubConfig.token){
+        var fixed = cleanToken(githubConfig.token);
+        if (fixed !== githubConfig.token){
+          githubConfig.token = fixed;
+          localStorage.setItem(GH_CONFIG_KEY, JSON.stringify(githubConfig));
+        }
+      }
     } catch(e){ githubConfig = null; }
   }
   function saveGithubConfig(cfg){
@@ -616,7 +636,7 @@ table.grid-table input[readonly]{cursor:pointer;}
     el.className = 'sync-status ' + kind;
   }
   function describeGithubError(e){
-    if (e && e.httpStatus === 401) return 'トークンが無効です';
+    if (e && e.httpStatus === 401) return 'トークンが無効です' + (githubConfig && githubConfig.token ? '（この端末の保存値: ' + tokenHint(githubConfig.token) + '）' : '');
     if (e && e.httpStatus === 403) return 'アクセスが拒否されました（権限を確認）';
     if (e && e.httpStatus === 404) return 'リポジトリ/ファイルが見つかりません';
     if (e && e.httpStatus) return 'HTTP ' + e.httpStatus;
@@ -808,6 +828,8 @@ table.grid-table input[readonly]{cursor:pointer;}
       $('ghBranch').value = githubConfig.branch || 'main';
       $('ghToken').value = '';
       $('ghToken').placeholder = '変更する場合のみ入力（保存済みのトークンを使い続けます）';
+      $('ghTokenInfo').hidden = false;
+      $('ghTokenInfo').textContent = 'この端末に保存されているトークン： ' + tokenHint(githubConfig.token) + '　※他の端末と見比べて、先頭・末尾・文字数が同じか確認できます（正しいトークンは通常93文字）';
     }
     $('syncPanel').hidden = false;
   }
@@ -816,8 +838,10 @@ table.grid-table input[readonly]{cursor:pointer;}
     var repo = $('ghRepo').value.trim();
     var path = $('ghPath').value.trim() || 'shift-data.json';
     var branch = $('ghBranch').value.trim() || 'main';
-    var token = $('ghToken').value.trim();
+    var token = cleanToken($('ghToken').value);
+    owner = cleanToken(owner); repo = cleanToken(repo);
     if (!owner || !repo){ toast('ユーザー名とリポジトリ名を入力してください'); return; }
+    if (token && !/^[A-Za-z0-9_]{20,}$/.test(token)){ toast('トークンの形式が違います。github_pat_ で始まる文字列を、コピーして貼り付けてください'); return; }
     if (!token && !(githubConfig && githubConfig.token)){ toast('Personal Access Token を入力してください'); return; }
     var cfg = { owner:owner, repo:repo, path:path, branch:branch, token: token || githubConfig.token };
     var previous = githubConfig;
